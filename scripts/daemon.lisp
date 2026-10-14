@@ -28,7 +28,7 @@
 
 (require :asdf)
 
-(let* ((host (or (uiop:getenv "CL_MCP_DAEMON_HOST") "127.0.0.1"))
+(let ((host (or (uiop:getenv "CL_MCP_DAEMON_HOST") "127.0.0.1"))
        (port (let ((s (uiop:getenv "CL_MCP_DAEMON_PORT")))
                (if (and s (plusp (length s))) (parse-integer s) 0)))
        (port-file (uiop:getenv "CL_MCP_DAEMON_PORT_FILE")))
