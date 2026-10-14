@@ -170,7 +170,11 @@ def find_openssl_dir():
         return None
     if shutil.which("libcrypto-3-x64.dll"):
         return None  # already reachable via PATH
-    candidates = [
+    candidates = []
+    git = shutil.which("git")
+    if git:  # <git>/cmd/git.exe or <git>/bin/git.exe -> <git>/mingw64/bin
+        candidates.append(os.path.join(os.path.dirname(os.path.dirname(git)), "mingw64", "bin"))
+    candidates += [
         r"C:\Program Files\Git\mingw64\bin",
         r"C:\Program Files (x86)\Git\mingw64\bin",
         os.path.join(os.path.expanduser("~"), "scoop", "apps", "openssl", "current", "bin"),
@@ -181,7 +185,7 @@ def find_openssl_dir():
     return None
 
 
-def build_daemon_command(home: str, port_file: str):
+def build_daemon_command():
     """Command that starts the shared daemon (see scripts/daemon.lisp)."""
     override = os.environ.get("CL_MCP_DAEMON_COMMAND")
     if override:
@@ -212,7 +216,7 @@ def _spawn_daemon(home: str, port_file: str) -> int:
     ssl_dir = find_openssl_dir()
     if ssl_dir and ssl_dir.lower() not in env.get("PATH", "").lower():
         env["PATH"] = ssl_dir + os.pathsep + env.get("PATH", "")
-    cmd = build_daemon_command(home, port_file)
+    cmd = build_daemon_command()
     log_path = os.path.join(home, "daemon.log")
     kwargs = {}
     if os.name == "nt":
@@ -257,7 +261,8 @@ def ensure_daemon():
                     parts = f.read().split()
                 if parts:
                     bound_port = int(parts[0])
-                    bound_pid = int(parts[1]) if len(parts) > 1 and int(parts[1]) else pid
+                    file_pid = int(parts[1]) if len(parts) > 1 else 0
+                    bound_pid = file_pid or pid
                     if health_check(bound_port):
                         write_registry(home, bound_port, bound_pid)
                         return bound_port

@@ -248,6 +248,27 @@ client and then stops unless given `:accept-once nil`.)
 This gives you the same shared-REPL workflow as Claude Code's HTTP mode —
 you keep your SLIME/Sly session while Codex works through the bridge.
 
+#### Shared daemon with the stdio bridge
+
+`--ensure-daemon` removes the manual server step: the bridge starts one
+shared daemon (`scripts/daemon.lisp`, the multi-client TCP transport with
+the worker pool enabled) when none is running, and every agent session
+then shares that one warm image — each with its own worker and project
+root, so concurrent agents, including agents in different git worktrees
+of one repository, do not interfere. Concurrent starts are serialized by
+a lock file in `~/.cl-mcp/` (`CL_MCP_HOME` overrides it), which also
+holds the port registry (`daemon.json`), the daemon's port file, and
+`daemon.log` for startup failures. Point every client's stdio config at:
+
+```text
+python3 /path/to/cl-mcp/scripts/stdio_tcp_bridge.py --ensure-daemon
+```
+
+On Windows the bridge also prepends the OpenSSL bin directory (found via
+Git for Windows, which ships `libcrypto-3-x64.dll`) to the daemon's PATH:
+without it, loading hunchentoot's cl+ssl dependency kills the daemon at
+startup. Tests for this mode live in `scripts/test_stdio_tcp_bridge.py`.
+
 ## Worker Pool Isolation
 
 Eval-dependent tools (`repl-eval`, `load-system`, `run-tests`, `code-*`,
