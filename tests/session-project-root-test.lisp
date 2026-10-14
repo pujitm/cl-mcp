@@ -182,15 +182,16 @@ scratch directories %SCRATCH-DIR made."
                ;; no longer even reads there, so look it up at runtime and
                ;; skip the link case where it does not exist.
                (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
-                 (when (and symlink (fboundp symlink))
-                   (funcall symlink (%native target) (namestring link))
-                   (setf (gethash "protocolVersion" params) "2025-06-18"
-                         (gethash "rootPath" params) (namestring link))
-                   (%call "tL" "initialize" params)
-                   (ok (equal (%native (session-project-root "tL")) (%native target))
-                       (format nil "stored as the target: ~A"
-                               (session-project-root "tL"))))
-                 (when (and symlink (fboundp symlink)) :done)))
+                 (if (and symlink (fboundp symlink))
+                     (progn
+                       (funcall symlink (%native target) (namestring link))
+                       (setf (gethash "protocolVersion" params) "2025-06-18"
+                             (gethash "rootPath" params) (namestring link))
+                       (%call "tL" "initialize" params)
+                       (ok (equal (%native (session-project-root "tL")) (%native target))
+                           (format nil "stored as the target: ~A"
+                                   (session-project-root "tL"))))
+                     (rove:skip "sb-posix:symlink is not available in this image"))))
           (ignore-errors (delete-file link)))))))
 
 (deftest a-root-set-outside-any-session-is-the-default

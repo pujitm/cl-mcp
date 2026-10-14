@@ -1361,7 +1361,12 @@ given, an IN-SUITE of it, and TESTS, each (NAME FORM)."
              (%write-fixture-file dir file (main "(= 1 2)"))
              ;; The edit's second is the compile's: give the source the fasl's date.
              (let ((unix (- (file-write-date fasl) (encode-universal-time 0 0 0 1 1 1970 0))))
-               (sb-posix:utimes (namestring source) unix unix))
+               ;; Windows SBCL has no SB-POSIX:UTIMES, and naming it
+               ;; literally no longer even reads there.
+               (let ((utimes (find-symbol "UTIMES" "SB-POSIX")))
+                 (if (and utimes (fboundp utimes))
+                     (funcall utimes (namestring source) unix unix)
+                     (rove:skip "sb-posix:utimes is not available in this image"))))
              (ok (= 1 (gethash "failed" (run-tests "fiveam-stale-probe")))
                  "the edited, failing test is what runs"))))))))
 
@@ -1408,7 +1413,11 @@ given, an IN-SUITE of it, and TESTS, each (NAME FORM)."
                      (%write-fixture-file dir "tests/main-test.lisp" (test-file "(= 1 2)"))
                      (let ((unix (- (file-write-date fasl)
                                     (encode-universal-time 0 0 0 1 1 1970 0))))
-                       (sb-posix:utimes (namestring source) unix unix))
+                       ;; Windows SBCL has no SB-POSIX:UTIMES (see above).
+                       (let ((utimes (find-symbol "UTIMES" "SB-POSIX")))
+                         (if (and utimes (fboundp utimes))
+                             (funcall utimes (namestring source) unix unix)
+                             (rove:skip "sb-posix:utimes is not available in this image"))))
                      (ok (= 1 (gethash "failed" (run-tests "pi-stale-probe")))
                          "the edited, failing test is what runs"))))
             (let ((var (uiop:find-symbol* '#:*toplevel-suites* :fiveam)))

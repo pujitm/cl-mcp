@@ -28,6 +28,15 @@
 
 (in-package #:cl-mcp/tests/code-refs-scan-test)
 
+(defun %symlink (target link)
+  "Create a symlink like SB-POSIX:SYMLINK, signalling an error where it
+does not exist (Windows SBCL has no such symbol, and naming it literally
+no longer even reads there).  Callers already skip on that error."
+  (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
+    (unless (and symlink (fboundp symlink))
+      (error "symlink is not available in this image"))
+    (funcall symlink target link)))
+
 (defun %sites (text name)
   "Return (kind line shadowed-by token) for every site of NAME in TEXT."
   (loop for form in (scan-text text name)
@@ -366,7 +375,7 @@ LABEL goes into its name, so a leftover directory says which test made it."
       (unwind-protect
            (handler-case
                (progn
-                 (sb-posix:symlink (uiop:native-namestring real) (uiop:native-namestring link))
+                 (%symlink (uiop:native-namestring real) (uiop:native-namestring link))
                  (with-open-file (s (merge-pathnames "a.lisp" real)
                                     :direction :output :if-exists :supersede
                                     :external-format :utf-8)
@@ -397,7 +406,7 @@ LABEL goes into its name, so a leftover directory says which test made it."
              (%put-file outside "a.lisp" "(defun a () (foo))")
              (%put-file root "own.lisp" "(defun b () (foo))")
              (if (not (ignore-errors
-                       (sb-posix:symlink (uiop:native-namestring outside)
+                       (%symlink (uiop:native-namestring outside)
                                          (uiop:native-namestring link))
                        t))
                  (skip "could not create a symlink in this environment")

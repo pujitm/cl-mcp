@@ -55,6 +55,20 @@
 
 (in-package #:cl-mcp/tests/write-path-specs-test)
 
+(defun %symlink (target link)
+  "Create a symlink like SB-POSIX:SYMLINK, signalling an error where it
+does not exist (Windows SBCL has no such symbol, and naming it literally
+no longer even reads there)."
+  (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
+    (unless (and symlink (fboundp symlink))
+      (error "symlink is not available in this image"))
+    (funcall symlink target link)))
+
+(defun %symlink-available-p ()
+  "True when %SYMLINK can create a link in this image."
+  (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
+    (and symlink (fboundp symlink) t)))
+
 ;;; ------------------------------------------------------------------------
 ;;; Helpers
 
@@ -418,6 +432,8 @@ dleaf -> nothing.txt, doleaf -> ../outside/nothing.txt."
     (ng (probe-file (uiop:parse-native-namestring scratch :ensure-directory t)))))
 
 (deftest write-fixture-adopts-links-without-following-them
+  (unless (%symlink-available-p)
+    (rove:skip "sb-posix:symlink is not available in this image"))
   (let* ((owned (format nil "~Acl-mcp-write-spec-owned-~D-~D/"
                         (uiop:native-namestring (uiop:temporary-directory))
                         (sb-posix:getpid) (get-universal-time)))
@@ -429,8 +445,8 @@ dleaf -> nothing.txt, doleaf -> ../outside/nothing.txt."
              (write-string "keep" out))
            (with-tree (fixture)
              ;; Made by the body, not the fixture, so cleanup adopts it.
-             (sb-posix:symlink (string-right-trim "/" owned)
-                               (in-region fixture :project "made-by-body")))
+             (%symlink (string-right-trim "/" owned)
+                       (in-region fixture :project "made-by-body")))
            (ok (probe-file (uiop:parse-native-namestring keep))
                "the link was unlinked and its target left alone"))
       (sb-posix:unlink keep)
@@ -447,6 +463,8 @@ dleaf -> nothing.txt, doleaf -> ../outside/nothing.txt."
     (ng (probe-file (uiop:parse-native-namestring scratch :ensure-directory t)))))
 
 (deftest write-fixture-never-adopts-a-scratch-it-did-not-create
+  (unless (%symlink-available-p)
+    (rove:skip "sb-posix:symlink is not available in this image"))
   ;; The scratch path a fixture tries already exists: a directory holding files,
   ;; or a symlink to one.  Its mkdir fails, so the fixture owns nothing there.
   ;; Cleanup must then neither remove what it finds nor report it as a leftover
@@ -475,7 +493,7 @@ dleaf -> nothing.txt, doleaf -> ../outside/nothing.txt."
              (dolist (native sentinels)
                (with-open-file (out (uiop:parse-native-namestring native) :direction :output)
                  (write-string "keep" out)))
-             (sb-posix:symlink "aimed" alias)
+             (%symlink "aimed" alias)
              (dolist (candidate (list taken (concatenate 'string alias "/")))
                (dolist (adopt '(t nil))
                  (let ((ran nil)

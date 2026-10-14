@@ -405,7 +405,13 @@ created it.  Used to check which object came back, never whether it may."
 (defun fixture-symlink (fixture link-native target-native)
   "Create a symlink at LINK-NATIVE pointing to TARGET-NATIVE and record it, so
 cleanup unlinks the link itself and never what it points to."
-  (sb-posix:symlink target-native link-native)
+  ;; Looked up at runtime: Windows SBCL has no SB-POSIX:SYMLINK, and
+  ;; naming it literally no longer even reads there; fixtures that
+  ;; create links then fail at runtime on that platform.
+  (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
+    (unless (and symlink (fboundp symlink))
+      (error "symlink is not available in this image"))
+    (funcall symlink target-native link-native))
   (%record fixture :link link-native))
 
 (defun %make-place (fixture place)
@@ -554,7 +560,13 @@ to take a snapshot cannot change what a later snapshot sees."
           collect (list (subseq native (length scratch))
                         kind
                         (case kind
-                          (:link (sb-posix:readlink native))
+                          ;; Looked up at runtime: Windows SBCL has no
+                          ;; SB-POSIX:READLINK, and naming it literally no
+                          ;; longer even reads there; a link's DETAIL is
+                          ;; then NIL and only its kind is compared.
+                          (:link (let ((readlink (find-symbol "READLINK" "SB-POSIX")))
+                                   (and readlink (fboundp readlink)
+                                        (funcall readlink native))))
                           (:file (%file-octets native))
                           (t nil))))))
 

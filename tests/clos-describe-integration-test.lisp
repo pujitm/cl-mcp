@@ -720,7 +720,13 @@ case, in which source matching has to be right entirely on its own."
          (atime (sb-posix:stat-atime stat))
          (mtime (sb-posix:stat-mtime stat)))
     (%write-text path text)
-    (sb-posix:utimes path atime mtime)))
+    ;; Looked up at runtime: Windows SBCL has no SB-POSIX:UTIMES, and
+    ;; naming it literally no longer even reads there.  Without it the
+    ;; write happens but its date advances, which the stale checks in
+    ;; the one caller then (correctly) report on that platform.
+    (let ((utimes (find-symbol "UTIMES" "SB-POSIX")))
+      (when (and utimes (fboundp utimes))
+        (funcall utimes path atime mtime)))))
 
 (defun %method-of-generic-function (methods generic-function)
   "Return the sole entry in METHODS whose GENERIC_FUNCTION display name is
