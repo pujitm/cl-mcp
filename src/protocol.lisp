@@ -25,6 +25,7 @@
   ;; Tool modules register themselves with the registry at load time.
   (:import-from #:cl-mcp/src/tools/all)
   (:import-from #:cl-mcp/src/project-root
+                #:parse-project-root-namestring
                 #:set-project-root
                 #:with-session-project-root)
   (:import-from #:cl-mcp/src/pool
@@ -221,13 +222,23 @@ yason writes one raw, and the UTF-8 transport then cannot send the line."
                          root-uri)))))
       (when (and root (stringp root) (plusp (length root)))
         (handler-case
-            ;; PARSE-UNIX-NAMESTRING: ENSURE-DIRECTORY-PATHNAME hands a string
-            ;; to the CL pathname reader, which reads [ and ] as wildcard
-            ;; syntax and then signals on the wild result.  The HANDLER-CASE
-            ;; below would swallow that into one log line and let initialize
-            ;; succeed, so a client rooted at project[old]/ would silently
-            ;; keep cl-mcp's own default root.
-            (let ((root-dir (uiop:parse-unix-namestring root :ensure-directory t)))
+            ;; PARSE-PROJECT-ROOT-NAMESTRING: ENSURE-DIRECTORY-PATHNAME
+            ;; hands a string to the CL pathname reader, which reads [ and ]
+            ;; as wildcard syntax and then signals on the wild result.  The
+            ;; HANDLER-CASE below would swallow that into one log line and
+            ;; let initialize succeed, so a client rooted at project[old]/
+            ;; would silently keep cl-mcp's own default root.  The unix
+            ;; parser alone likewise silently dropped Windows roots.
+            (let ((root-dir (parse-project-root-namestring
+                             ;; file:///C:/... leaves a leading slash the
+                             ;; native parser reads as the current drive.
+                             (if (and (uiop/os:os-windows-p)
+                                      (> (length root) 2)
+                                      (char= (char root 0) #\/)
+                                      (alpha-char-p (char root 1))
+                                      (char= (char root 2) #\:))
+                                 (subseq root 1)
+                                 root))))
               (when (uiop/filesystem:directory-exists-p root-dir)
                 ;; Resolved, as fs-set-project-root resolves its path: kept as
                 ;; spelled, a link such as /proc/self/cwd was re-resolved by

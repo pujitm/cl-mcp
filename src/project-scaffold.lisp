@@ -25,7 +25,8 @@
   (:import-from #:cl-mcp/src/fs
                 #:fs-write-file)
   (:import-from #:cl-mcp/src/project-root
-                #:*project-root*)
+                #:*project-root*
+                #:parse-project-root-namestring)
   (:import-from #:cl-mcp/src/utils/paths
                 #:ensure-project-root
                 #:native-path-namestring
@@ -54,7 +55,7 @@ that concurrent calls never collide."
          ;; than a directory of that name.
          (dest-dir (uiop:ensure-directory-pathname
                     (merge-pathnames
-                     (uiop:parse-unix-namestring destination :ensure-directory t)
+                     (parse-project-root-namestring destination)
                      root)))
          (target-dir (uiop:ensure-directory-pathname
                       (merge-pathnames

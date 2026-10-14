@@ -34,6 +34,7 @@
                 #:inspect-object-by-id)
   (:import-from #:cl-mcp/src/project-root
                 #:*project-root*
+                #:parse-project-root-namestring
                 #:register-project-root-source-registry)
   (:import-from #:cl-mcp/src/log
                 #:log-event)
@@ -417,12 +418,13 @@ Returns a success payload."
   (let ((path (gethash "path" params)))
     (unless path
       (error "path is required"))
-    ;; PARSE-UNIX-NAMESTRING, matching how the parent writes this field
-    ;; (POOL's SEND-ROOT-TO-SESSION-WORKER and BROADCAST-ROOT-TO-WORKERS send
-    ;; UIOP:NATIVE-NAMESTRING). ENSURE-DIRECTORY-PATHNAME would read [ and ] as
-    ;; wildcard syntax and signal, so a bracketed root reached the worker only
-    ;; as a failed RPC the parent logs and swallows.
-    (let ((dir-path (uiop:parse-unix-namestring path :ensure-directory t)))
+    ;; PARSE-PROJECT-ROOT-NAMESTRING, matching how the parent writes
+    ;; this field (POOL's SEND-ROOT-TO-SESSION-WORKER and
+    ;; BROADCAST-ROOT-TO-WORKERS send UIOP:NATIVE-NAMESTRING, a
+    ;; drive-letter path on Windows). ENSURE-DIRECTORY-PATHNAME would
+    ;; read [ and ] as wildcard syntax and signal, and the unix parser
+    ;; silently parsed Windows roots into nonexistent directories.
+    (let ((dir-path (parse-project-root-namestring path)))
       (unless (uiop/filesystem:directory-exists-p dir-path)
         (error "Directory does not exist: ~A" path))
       ;; Reject overly broad roots (same policy as fs-set-project-root)

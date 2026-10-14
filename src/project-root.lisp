@@ -9,6 +9,7 @@
   (:import-from #:cl-mcp/src/state #:*current-session-id*)
   (:export #:*project-root*
            #:*project-root-lock*
+           #:parse-project-root-namestring
            #:session-project-root
            #:set-project-root
            #:forget-session-project-root
@@ -18,14 +19,29 @@
 
 (in-package #:cl-mcp/src/project-root)
 
+(defun parse-project-root-namestring (path)
+  "Parse PATH, a string naming a directory, as a project-root pathname.
+
+Never ENSURE-DIRECTORY-PATHNAME on the string: that reads it with the CL
+pathname reader, where [ and ] are wildcard syntax, so a root named
+project[old]/ signals -- while loading this file, in the defparameter
+below, that took the whole image down.
+
+On Windows the native parser is required: MCP clients and the parent
+process hand over drive-letter paths (\"C:/proj/\" or \"C:\\proj\\\"),
+and PARSE-UNIX-NAMESTRING parses such a string into a pathname that
+DIRECTORY-EXISTS-P answers NIL for, so every Windows root was silently
+dropped and the session fell back to the server default.  UIOP's native
+parser accepts both slash directions and does no wildcard reading.
+Elsewhere the wire protocol carries POSIX paths; parse them as such."
+  (if (uiop/os:os-windows-p)
+      (uiop:parse-native-namestring path :ensure-directory t)
+      (uiop:parse-unix-namestring path :ensure-directory t)))
+
 (defparameter *project-root*
   (let ((env-root (uiop/os:getenv "MCP_PROJECT_ROOT")))
     (when env-root
-      ;; PARSE-UNIX-NAMESTRING, not ENSURE-DIRECTORY-PATHNAME: the latter reads
-      ;; the string with the CL pathname reader, where [ and ] are wildcard
-      ;; syntax, and signals on the wild result -- here, while loading the file,
-      ;; so a root named project[old]/ would take the whole image down.
-      (uiop:parse-unix-namestring env-root :ensure-directory t)))
+      (parse-project-root-namestring env-root)))
   "Absolute pathname of the project root.
 Set via MCP_PROJECT_ROOT environment variable or fs-set-project-root tool.")
 

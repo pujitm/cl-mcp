@@ -178,12 +178,19 @@ scratch directories %SCRATCH-DIR made."
         (ignore-errors (delete-file link))
         (unwind-protect
              (progn
-               (sb-posix:symlink (%native target) (namestring link))
-               (setf (gethash "protocolVersion" params) "2025-06-18"
-                     (gethash "rootPath" params) (namestring link))
-               (%call "tL" "initialize" params)
-               (ok (equal (%native (session-project-root "tL")) (%native target))
-                   (format nil "stored as the target: ~A" (session-project-root "tL"))))
+               ;; Windows SBCL has no SB-POSIX:SYMLINK; naming it literally
+               ;; no longer even reads there, so look it up at runtime and
+               ;; skip the link case where it does not exist.
+               (let ((symlink (find-symbol "SYMLINK" "SB-POSIX")))
+                 (when (and symlink (fboundp symlink))
+                   (funcall symlink (%native target) (namestring link))
+                   (setf (gethash "protocolVersion" params) "2025-06-18"
+                         (gethash "rootPath" params) (namestring link))
+                   (%call "tL" "initialize" params)
+                   (ok (equal (%native (session-project-root "tL")) (%native target))
+                       (format nil "stored as the target: ~A"
+                               (session-project-root "tL"))))
+                 (when (and symlink (fboundp symlink)) :done)))
           (ignore-errors (delete-file link)))))))
 
 (deftest a-root-set-outside-any-session-is-the-default

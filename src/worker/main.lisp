@@ -18,6 +18,7 @@
                 #:register-all-handlers)
   (:import-from #:cl-mcp/src/project-root
                 #:*project-root*
+                #:parse-project-root-namestring
                 #:register-project-root-source-registry)
   (:import-from #:cl-mcp/src/log
                 #:log-event
@@ -95,12 +96,11 @@ pathname on success, NIL if the environment variable is not set or
 the directory does not exist."
   (let ((env-root (uiop/os:getenv "MCP_PROJECT_ROOT")))
     (when (and env-root (plusp (length env-root)))
-      ;; PARSE-UNIX-NAMESTRING, matching how the parent writes this variable
-      ;; (WORKER-CLIENT's %BUILD-ENVIRONMENT sends UIOP:NATIVE-NAMESTRING).
-      ;; The two are one protocol and have to move together: reader-escaping on
-      ;; one side with native parsing on the other leaves a literal backslash
-      ;; in the directory name.
-      (let ((dir (uiop:parse-unix-namestring env-root :ensure-directory t)))
+      ;; PARSE-PROJECT-ROOT-NAMESTRING, matching how the parent writes
+      ;; this variable (WORKER-CLIENT's %BUILD-ENVIRONMENT sends
+      ;; UIOP:NATIVE-NAMESTRING, a drive-letter path on Windows, which
+      ;; the unix parser silently parsed into a nonexistent directory).
+      (let ((dir (parse-project-root-namestring env-root)))
         (if (uiop/filesystem:directory-exists-p dir)
             (progn
               (setf *project-root* dir)
@@ -120,15 +120,23 @@ the directory does not exist."
 (defun %install-signal-handlers ()
   "Install SIGTERM handler so the worker exits cleanly when the parent
 shuts down the pool.  Without this, SBCL raises a condition for
-SIGTERM which cascades into nested errors when stderr is a broken pipe."
+SIGTERM which cascades into nested errors when stderr is a broken pipe.
+
+The installer is looked up at runtime: SBCL 2.6 removed
+SB-SYS:ENABLE-INTERRUPT, and naming the symbol literally no longer
+even reads on such an image -- the worker failed to compile and every
+pooled call died in the handshake.  The parent watchdog below is the
+reliable shutdown path; this handler is best-effort where it exists."
   #+sbcl
-  (sb-sys:enable-interrupt
-   sb-posix:sigterm
-   (lambda (signo context info)
-     (declare (ignore signo context info))
-     (ignore-errors
-       (log-event :info "worker.sigterm" "pid" (%get-pid)))
-     (sb-ext:exit :code 0 :abort t))))
+  (let ((installer (find-symbol "ENABLE-INTERRUPT" "SB-SYS")))
+    (when (and installer (fboundp installer))
+      (funcall installer
+               sb-posix:sigterm
+               (lambda (signo context info)
+                 (declare (ignore signo context info))
+                 (ignore-errors
+                   (log-event :info "worker.sigterm" "pid" (%get-pid)))
+                 (sb-ext:exit :code 0 :abort t))))))
 
 (defun %start-parent-watchdog ()
   "Start a background thread that monitors the parent process via getppid().
@@ -144,8 +152,18 @@ environments getppid() legitimately returns 1 and the old ppid==1 early-exit
 check would incorrectly treat the worker as orphaned immediately.
 
 Polls every 2 seconds — slightly slower than PDEATHSIG but reliable
-regardless of which thread spawned the worker."
-  (let* ((original-ppid (sb-posix:getppid))
+regardless of which thread spawned the worker.
+
+Windows SBCL has no SB-POSIX:GETPPID (there is no parent-pid concept
+to poll), and naming the symbol literally no longer even reads there.
+Looked up at runtime; without it the watchdog is skipped and the
+parent's own worker reaping owns the worker's lifetime."
+  (let ((getppid (find-symbol "GETPPID" "SB-POSIX")))
+    (unless (and getppid (fboundp getppid))
+      (log-event :info "worker.parent-watchdog.unavailable"
+                 "pid" (%get-pid))
+      (return-from %start-parent-watchdog nil))
+  (let* ((original-ppid (funcall getppid))
          ;; MCP_PARENT_PID is injected by %build-environment in worker-client.
          ;; Fall back to the live getppid() value when the variable is absent
          ;; (e.g. MCP_NO_WORKER_POOL=1, manual invocation, or older server).
@@ -167,7 +185,7 @@ regardless of which thread spawned the worker."
     (make-thread
      (lambda ()
        (loop (sleep 2)
-             (let ((ppid (sb-posix:getppid)))
+             (let ((ppid (funcall getppid)))
                (when (/= ppid expected-ppid)
                  (ignore-errors
                    (log-event :info "worker.parent-died"
@@ -175,7 +193,7 @@ regardless of which thread spawned the worker."
                               "expected_ppid" expected-ppid
                               "current_ppid" ppid))
                  (sb-ext:exit :code 0 :abort t)))))
-     :name "parent-watchdog")))
+     :name "parent-watchdog"))))
 
 (defun start ()
   "Entry point for worker child processes.
@@ -215,8 +233,11 @@ Roswell REPL."
                        "swank_port" (or swank-port "none")
                        "pid" (%get-pid))
             (%output-handshake tcp-port swank-port)
-            (let* ((devnull (open #P"/dev/null" :direction :output
-                                                :if-exists :append))
+            (let* ((devnull (open (if (uiop/os:os-windows-p)
+                                      #P"NUL"
+                                      #P"/dev/null")
+                                  :direction :output
+                                  :if-exists :append))
                    ;; ANSI requires the three interactive streams below to be
                    ;; bidirectional.  Pointing them at an output-only stream
                    ;; turns any read -- a Y-OR-N-P reached from a system's

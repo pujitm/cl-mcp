@@ -5,6 +5,7 @@
   (:import-from #:cl-mcp/src/log #:log-event)
   (:import-from #:cl-mcp/src/project-root
                 #:*project-root*
+                #:parse-project-root-namestring
                 #:set-project-root
                 #:session-project-root)
   (:import-from #:bordeaux-threads
@@ -702,12 +703,11 @@ Returns a hash-table with updated path information:
   (when (string= (string-trim '(#\Space #\Tab) path) "")
     (error "path must not be empty"))
   (let* ((prev-root *project-root*)
-         ;; PARSE-UNIX-NAMESTRING, not ENSURE-DIRECTORY-PATHNAME: the latter
-         ;; hands a string to the CL pathname reader, which reads [ and ] as
-         ;; wildcard syntax, so the very path this tool returns for a root
-         ;; named project[old]/ came back as a wild pathname it then refused.
-         ;; The wire protocol carries POSIX paths; parse them as such.
-         (requested (uiop:parse-unix-namestring path :ensure-directory t))
+         ;; PARSE-PROJECT-ROOT-NAMESTRING, not ENSURE-DIRECTORY-PATHNAME:
+         ;; the latter reads [ and ] as wildcard syntax, so a root named
+         ;; project[old]/ came back wild; the unix parser alone silently
+         ;; dropped every Windows drive-letter root (see project-root).
+         (requested (parse-project-root-namestring path))
          ;; The session's own root first.  The process's working directory,
          ;; for a session with none, is the server's own: a session's root
          ;; no longer moves it (SET-PROJECT-ROOT), so this cannot resolve into
